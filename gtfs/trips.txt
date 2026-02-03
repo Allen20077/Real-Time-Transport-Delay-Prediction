@@ -1,0 +1,4 @@
+trip_id,route_id,shape_id
+T1,R1,SH1
+T2,R2,SH2
+T3,R3,SH3

@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Real-Time Transport Delay Prediction</title>
+
+    <!-- Leaflet -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+
+    <!-- Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;500;700&display=swap" rel="stylesheet">
+    <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+    <meta name="theme-color" content="#0f2027">
+    <link rel="apple-touch-icon" href="/static/icon.png">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+
+</head>
+<body>
+
+<!-- Sidebar -->
+<div class="sidebar">
+    <h2>🚍 Transit AI</h2>
+
+    <div class="globe"></div>
+
+    <div class="weather">
+        <h3>🌦 Weather</h3>
+        <p>City: Bengaluru</p>
+        <p>Temp: 28°C</p>
+        <p>Status: Cloudy</p>
+    </div>
+</div>
+
+<!-- Main Content -->
+<div class="main">
+
+    <h1>🚍 Transit Delay Tracker</h1>
+    <!-- Stats -->
+    <div class="stats">
+        <div class="card">
+            <h4>Live Delay</h4>
+            <p id="delay">-- min</p>
+        </div>
+        <div class="card">
+            <h4>Last Update</h4>
+            <p id="time">--</p>
+        </div>
+    </div>
+    <div class="top-bar">
+    <input
+        type="text"
+        id="searchInput"
+        placeholder="Search Transport Delay or Place ..."
+        onkeydown="if(event.key === 'Enter') searchItem()"
+    >
+    <button onclick="searchItem()">Search</button>
+</div>
+
+<div id="busList" class="bus-list">
+    <h3>Available Buses</h3>
+    <ul id="busItems"></ul>
+</div>
+
+    <!-- Map -->
+    <div id="map"></div>
+</div>
+
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script>
+/* ================= MAP ================= */
+const map = L.map('map').setView([12.9716, 77.5946], 13);
+
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+}).addTo(map);
+
+async function updateDelay() {
+    const res = await fetch("/live_delay");
+    const data = await res.json();
+
+    document.getElementById("delay").innerText =
+        data.delay + " min";
+    document.getElementById("time").innerText =
+        data.updated;
+}
+
+setInterval(updateDelay, 3000);
+
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script>
+/* ================= MAP ================= */
+const map = L.map('map').setView([12.9716, 77.5946], 13);
+
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+}).addTo(map);
+
+/* ================= LIVE DELAY ================= */
+async function updateDelay() {
+    const res = await fetch("/live_delay");
+    const data = await res.json();
+
+    document.getElementById("delay").innerText =
+        data.delay + " min";
+    document.getElementById("time").innerText =
+        data.updated;
+}
+setInterval(updateDelay, 3000);
+
+/* ================= SEARCH ================= */
+async function searchItem() {
+    const query = document.getElementById("searchInput").value.trim();
+    if (!query) return;
+
+    // 1️⃣ Get coordinates
+    const geoRes = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=json&q=${query}`
+    );
+    const geoData = await geoRes.json();
+
+    if (!geoData.length) {
+        alert("Place not found");
+        return;
+    }
+
+    const place = geoData[0];
+
+    if (!place.display_name.toLowerCase().includes("india")) {
+        document.getElementById("busItems").innerHTML =
+            "<li>Only India supported 🇮🇳</li>";
+        return;
+    }
+
+    const lat = parseFloat(place.lat);
+    const lng = parseFloat(place.lon);
+
+    map.setView([lat, lng], 14);
+    map.invalidateSize();
+
+    // marker for searched place
+    L.marker([lat, lng]).addTo(map)
+        .bindPopup(place.display_name)
+        .openPopup();
+
+    // 2️⃣ Ask backend for REAL BMTC buses
+    const res = await fetch(`/bmtc/buses?lat=${lat}&lng=${lng}`);
+    const data = await res.json();
+
+    const list = document.getElementById("busItems");
+    list.innerHTML = "";
+
+    if (!data.buses.length) {
+        list.innerHTML = "<li>No BMTC buses found</li>";
+        return;
+    }
+
+data.buses.forEach(bus => {
+    const li = document.createElement("li");
+    li.innerText = `BMTC ${bus}`;
+
+    li.onclick = () => {
+        animateBusOnRoute(bus);
+    };
+
+    list.appendChild(li);
+});
+
+}
+let activePolyline = null;
+let activeBusMarker = null;
+let animIndex = 0;
+async function animateBusOnRoute(busNumber) {
+    // get route shape from backend
+    const res = await fetch(`/bmtc/route?route=${busNumber}`);
+    const data = await res.json();
+
+    if (!data.points.length) {
+        alert("Route shape not available");
+        return;
+    }
+
+    // clear old route
+    if (activePolyline) map.removeLayer(activePolyline);
+    if (activeBusMarker) map.removeLayer(activeBusMarker);
+
+    // draw route
+    activePolyline = L.polyline(data.points, {
+        color: "lime",
+        weight: 5
+    }).addTo(map);
+
+    map.fitBounds(activePolyline.getBounds());
+
+    // bus marker
+    activeBusMarker = L.marker(data.points[0], {
+        icon: L.divIcon({
+            html: "🚍",
+            className: "bus-icon",
+            iconSize: [30, 30]
+        })
+    }).addTo(map);
+
+    animIndex = 0;
+
+    // animate
+    setInterval(() => {
+        if (animIndex >= data.points.length) animIndex = 0;
+        activeBusMarker.setLatLng(data.points[animIndex]);
+        animIndex++;
+    }, 800); // speed control
+}
+
+</script>
+
+</script>
+
+</body>
+</html>
